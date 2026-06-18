@@ -1,18 +1,17 @@
 import { useMemo, useState } from 'react';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Grid, Stack, Typography } from '@mui/material';
-import { ErrorScreen } from '../components/ErrorScreen';
 import { FilterBar } from '../components/FilterBar';
-import { LoadingScreen } from '../components/LoadingScreen';
 import { NotificationTable } from '../components/NotificationTable';
 import { useNotifications } from '../context/NotificationContext';
 import { Log } from '../services/logger';
 import { filterNotifications, formatDateTime } from '../utils/notificationHelpers';
 
 export function NotificationsPage() {
-  const { notifications, loading, error, refreshNotifications, markAsRead } = useNotifications();
+  const { notifications, loading, markAsRead } = useNotifications();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
-  const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: 10 });
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [selectedNotification, setSelectedNotification] = useState(null);
 
   const filteredRows = useMemo(
@@ -20,10 +19,16 @@ export function NotificationsPage() {
     [notifications, searchQuery, typeFilter],
   );
 
+  const visibleRows = useMemo(() => {
+    const start = page * rowsPerPage;
+    return filteredRows.slice(start, start + rowsPerPage);
+  }, [filteredRows, page, rowsPerPage]);
+
   const handleReset = async () => {
     await Log('frontend', 'info', 'filter', 'User reset notification filters');
     setSearchQuery('');
     setTypeFilter('All');
+    setPage(0);
   };
 
   const openNotification = async (notification) => {
@@ -31,13 +36,24 @@ export function NotificationsPage() {
     await Log('frontend', 'info', 'user', `Viewed notification ${notification.id}`);
   };
 
-  if (loading) {
-    return <LoadingScreen />;
-  }
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    setPage(0);
+  };
 
-  if (error && notifications.length === 0) {
-    return <ErrorScreen message={error} onRetry={refreshNotifications} />;
-  }
+  const handleTypeChange = (value) => {
+    setTypeFilter(value);
+    setPage(0);
+  };
+
+  const handlePageChange = (_, nextPage) => {
+    setPage(nextPage);
+  };
+
+  const handleRowsPerPageChange = (event) => {
+    setRowsPerPage(Number(event.target.value));
+    setPage(0);
+  };
 
   return (
     <Stack spacing={3}>
@@ -54,16 +70,18 @@ export function NotificationsPage() {
       <FilterBar
         searchValue={searchQuery}
         typeValue={typeFilter}
-        onSearchChange={setSearchQuery}
-        onTypeChange={setTypeFilter}
+        onSearchChange={handleSearchChange}
+        onTypeChange={handleTypeChange}
         onReset={handleReset}
       />
 
       <NotificationTable
         rows={filteredRows}
         loading={loading}
-        paginationModel={paginationModel}
-        onPaginationModelChange={setPaginationModel}
+        page={page}
+        rowsPerPage={rowsPerPage}
+        onPageChange={handlePageChange}
+        onRowsPerPageChange={handleRowsPerPageChange}
         onToggleRead={(notification) => void markAsRead(notification.id, !notification.isRead)}
         onOpen={openNotification}
       />

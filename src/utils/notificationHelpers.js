@@ -72,6 +72,15 @@ export function getPriorityScore(notification) {
   return weight * 1000 - ageInMinutes;
 }
 
+export function sortByPriority(notifications) {
+  return [...notifications]
+    .map((notification) => ({
+      ...notification,
+      priorityScore: getPriorityScore(notification),
+    }))
+    .sort((left, right) => right.priorityScore - left.priorityScore);
+}
+
 export function buildNotificationStats(notifications) {
   return notifications.reduce(
     (accumulator, notification) => {

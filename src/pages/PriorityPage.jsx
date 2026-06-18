@@ -1,30 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Box, Grid, Stack, Typography } from '@mui/material';
-import { ErrorScreen } from '../components/ErrorScreen';
-import { LoadingScreen } from '../components/LoadingScreen';
+import { useEffect, useMemo } from 'react';
+import { Box, Card, CardContent, Grid, Stack, Typography } from '@mui/material';
 import { NotificationCard } from '../components/NotificationCard';
-import { PrioritySelector } from '../components/PrioritySelector';
 import { useNotifications } from '../context/NotificationContext';
 import { Log } from '../services/logger';
-import { getPriorityScore } from '../utils/notificationHelpers';
+import { sortByPriority } from '../utils/notificationHelpers';
 
 export function PriorityPage() {
-  const { notifications, loading, error, getPriorityNotifications } = useNotifications();
-  const [limit, setLimit] = useState(10);
+  const { notifications, loading } = useNotifications();
+  const limit = 10;
 
-  const priorityNotifications = useMemo(() => getPriorityNotifications(limit), [getPriorityNotifications, limit]);
+  const priorityNotifications = useMemo(() => sortByPriority(notifications).slice(0, limit), [notifications]);
 
   useEffect(() => {
     void Log('frontend', 'info', 'priority', `Calculated top ${limit} priority notifications`);
   }, [limit, priorityNotifications.length]);
-
-  if (loading) {
-    return <LoadingScreen />;
-  }
-
-  if (error && notifications.length === 0) {
-    return <ErrorScreen message={error} />;
-  }
 
   return (
     <Stack spacing={3}>
@@ -38,21 +27,34 @@ export function PriorityPage() {
         </Typography>
       </Box>
 
-      <PrioritySelector value={limit} onChange={setLimit} />
+      <Card sx={{ borderRadius: 4 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ fontWeight: 800 }}>
+            Top 10 notifications
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+            Priority score = (weight × 1000) - age in minutes. Placement = 3, Result = 2, Event = 1.
+          </Typography>
+        </CardContent>
+      </Card>
 
-      <Grid container spacing={3}>
-        {priorityNotifications.map((notification, index) => (
-          <Grid item xs={12} md={6} lg={4} key={notification.id}>
-            <NotificationCard
-              notification={notification}
-              rank={index + 1}
-              score={getPriorityScore(notification)}
-              onToggleRead={() => undefined}
-              onOpen={() => void Log('frontend', 'info', 'user', `Opened priority notification ${notification.id}`)}
-            />
-          </Grid>
-        ))}
-      </Grid>
+      {loading ? (
+        <Typography sx={{ color: 'text.secondary' }}>Loading priority notifications...</Typography>
+      ) : (
+        <Grid container spacing={3}>
+          {priorityNotifications.map((notification, index) => (
+            <Grid item xs={12} md={6} lg={4} key={notification.id}>
+              <NotificationCard
+                notification={notification}
+                rank={index + 1}
+                score={notification.priorityScore}
+                onToggleRead={() => undefined}
+                onOpen={() => void Log('frontend', 'info', 'user', `Opened priority notification ${notification.id}`)}
+              />
+            </Grid>
+          ))}
+        </Grid>
+      )}
 
       {priorityNotifications.length === 0 ? (
         <Box

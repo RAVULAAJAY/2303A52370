@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchAllNotifications } from '../api/notificationsApi';
+import { loadNotificationsDataset } from '../api/notificationsApi';
 import { Log } from '../services/logger';
-import { buildNotificationStats, getPriorityScore, sortByNewest } from '../utils/notificationHelpers';
+import { buildNotificationStats, getPriorityScore, sortByNewest, sortByPriority } from '../utils/notificationHelpers';
 import { readJSON, writeJSON } from '../utils/storage';
 
 const NotificationContext = createContext(null);
@@ -24,9 +24,11 @@ export function NotificationProvider({ children }) {
     message: '',
     severity: 'info',
   });
+  const [usingDemoData, setUsingDemoData] = useState(false);
   const [readState, setReadState] = useState(() => readJSON(READ_STATE_KEY, {}));
 
   const readStateRef = useRef(readState);
+  const warningShownRef = useRef(false);
 
   useEffect(() => {
     readStateRef.current = readState;
@@ -54,25 +56,45 @@ export function NotificationProvider({ children }) {
 
     try {
       await Log('frontend', 'info', 'app', 'Loading notifications from API');
-      const response = await fetchAllNotifications({ limit: 100 });
+      const response = await loadNotificationsDataset({ limit: 100 });
       const hydrated = applyReadState(response.items, readStateRef.current);
       const ordered = sortByNewest(hydrated);
 
       setNotifications(ordered);
+      setUsingDemoData(response.source === 'mock');
       setLastSyncedAt(new Date().toISOString());
       await Log('frontend', 'info', 'app', `Loaded ${ordered.length} notifications`);
+
+      if (response.source === 'mock' && response.warning && !warningShownRef.current) {
+        showSnackbar(response.warning, 'warning');
+        warningShownRef.current = true;
+      }
+
+      if (response.source === 'api') {
+        warningShownRef.current = false;
+      }
     } catch (requestError) {
       const message =
         requestError?.response?.data?.message ??
         requestError?.message ??
-        'Unable to load notifications';
+        'Unable to reach API. Showing demo data.';
 
-      setError(message);
-      await Log('frontend', 'fatal', 'app', `Notification load failed: ${message}`);
+      const fallback = await loadNotificationsDataset({ limit: 100 });
+      const hydrated = applyReadState(fallback.items, readStateRef.current);
+
+      setNotifications(sortByNewest(hydrated));
+      setUsingDemoData(true);
+
+      if (!warningShownRef.current) {
+        showSnackbar(fallback.warning || message, 'warning');
+        warningShownRef.current = true;
+      }
+
+      await Log('frontend', 'warn', 'app', `Notification load failed: ${message}`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showSnackbar]);
 
   useEffect(() => {
     void refreshNotifications();
@@ -122,13 +144,7 @@ export function NotificationProvider({ children }) {
 
   const getPriorityNotifications = useCallback(
     (limit) =>
-      notifications
-        .map((notification) => ({
-          ...notification,
-          priorityScore: getPriorityScore(notification),
-        }))
-        .sort((left, right) => right.priorityScore - left.priorityScore)
-        .slice(0, limit),
+      sortByPriority(notifications).slice(0, limit),
     [notifications],
   );
 
@@ -152,6 +168,7 @@ export function NotificationProvider({ children }) {
       snackbar,
       showSnackbar,
       closeSnackbar,
+      usingDemoData,
     }),
     [
       notifications,
@@ -167,6 +184,7 @@ export function NotificationProvider({ children }) {
       snackbar,
       showSnackbar,
       closeSnackbar,
+      usingDemoData,
     ],
   );
 

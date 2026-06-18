@@ -1,15 +1,7 @@
-import axios from 'axios';
+import apiClient, { getAuthorizationHeadersPreview, hasAuthorizationMaterial } from '../services/api';
 import { Log } from '../services/logger';
-import { normalizeNotification } from '../utils/notificationHelpers';
-
-const baseUrl =
-  import.meta.env.VITE_NOTIFICATIONS_API_BASE_URL ??
-  'http://4.224.186.213/evaluation-service/notifications';
-
-const notificationClient = axios.create({
-  baseURL: baseUrl,
-  timeout: 20000,
-});
+import { mockNotifications } from '../data/mockNotifications';
+import { normalizeNotification, sortByNewest, sortByPriority } from '../utils/notificationHelpers';
 
 function parseNotificationPayload(payload) {
   if (Array.isArray(payload)) {
@@ -19,9 +11,7 @@ function parseNotificationPayload(payload) {
     };
   }
 
-  const items =
-    payload?.notifications ?? payload?.data ?? payload?.results ?? payload?.items ?? [];
-
+  const items = payload?.notifications ?? payload?.data ?? payload?.results ?? payload?.items ?? [];
   const total =
     payload?.total ??
     payload?.count ??
@@ -36,11 +26,33 @@ function parseNotificationPayload(payload) {
   };
 }
 
-export async function fetchNotificationsPage({ page = 1, limit = 100, notificationType }) {
-  const params = {
+function filterMockNotifications(notificationType) {
+  return mockNotifications.filter((notification) =>
+    notificationType && notificationType !== 'All'
+      ? notification.notification_type === notificationType
+      : true,
+  );
+}
+
+function createMockPage({ page, limit, notificationType, warning }) {
+  const filtered = filterMockNotifications(notificationType);
+  const pageItems = filtered
+    .slice((page - 1) * limit, page * limit)
+    .map((notification, index) => normalizeNotification(notification, index + (page - 1) * limit));
+
+  return {
+    items: pageItems,
+    total: filtered.length,
     page,
     limit,
+    source: 'mock',
+    warning,
+    authorizationHeaders: getAuthorizationHeadersPreview(),
   };
+}
+
+export async function fetchNotificationsPage({ page = 1, limit = 100, notificationType }) {
+  const params = { page, limit };
 
   if (notificationType && notificationType !== 'All') {
     params.notification_type = notificationType;
@@ -48,8 +60,18 @@ export async function fetchNotificationsPage({ page = 1, limit = 100, notificati
 
   await Log('frontend', 'info', 'api', `Fetching notifications page ${page}`);
 
+  if (!hasAuthorizationMaterial()) {
+    await Log('frontend', 'warn', 'api', 'API authorization missing. Showing demo data.');
+    return createMockPage({
+      page,
+      limit,
+      notificationType,
+      warning: 'API authorization missing. Showing demo data.',
+    });
+  }
+
   try {
-    const response = await notificationClient.get('', { params });
+    const response = await apiClient.get('', { params });
     const parsed = parseNotificationPayload(response.data);
     const items = parsed.items.map((notification, index) =>
       normalizeNotification(notification, index + (page - 1) * limit),
@@ -62,20 +84,37 @@ export async function fetchNotificationsPage({ page = 1, limit = 100, notificati
       total: parsed.total,
       page,
       limit,
+      source: 'api',
+      warning: '',
+      authorizationHeaders: getAuthorizationHeadersPreview(),
     };
   } catch (error) {
-    await Log('frontend', 'error', 'api', `Failed to fetch notifications page ${page}`);
-    throw error;
+    const warning = [401, 403].includes(error?.response?.status)
+      ? 'API authorization missing. Showing demo data.'
+      : 'Unable to reach API. Showing demo data.';
+
+    await Log('frontend', 'warn', 'api', `${warning} Page ${page}`);
+
+    return createMockPage({
+      page,
+      limit,
+      notificationType,
+      warning,
+    });
   }
 }
 
-export async function fetchAllNotifications({ notificationType = 'All', limit = 100, maxPages = 50 } = {}) {
+export async function loadNotificationsDataset({ notificationType = 'All', limit = 100, maxPages = 50 } = {}) {
   const items = [];
   let total = null;
+  let source = 'api';
+  let warning = '';
 
   for (let page = 1; page <= maxPages; page += 1) {
     const response = await fetchNotificationsPage({ page, limit, notificationType });
     items.push(...response.items);
+    source = response.source ?? source;
+    warning = response.warning ?? warning;
 
     if (typeof response.total === 'number') {
       total = response.total;
@@ -88,8 +127,24 @@ export async function fetchAllNotifications({ notificationType = 'All', limit = 
     }
   }
 
+  const orderedItems =
+    notificationType === 'All'
+      ? sortByNewest(items)
+      : sortByNewest(items.filter((item) => item.notificationType === notificationType));
+
   return {
-    items,
-    total: total ?? items.length,
+    items: orderedItems,
+    total: total ?? orderedItems.length,
+    source,
+    warning,
+    authorizationHeaders: getAuthorizationHeadersPreview(),
+  };
+}
+
+export async function loadPriorityNotifications(limit = 10) {
+  const dataset = await loadNotificationsDataset({ limit: 100 });
+  return {
+    ...dataset,
+    items: sortByPriority(dataset.items).slice(0, limit),
   };
 }

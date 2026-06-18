@@ -1,8 +1,6 @@
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import { Box, Button, Card, CardContent, Chip, Grid, Stack, Typography } from '@mui/material';
 import { NotificationCard } from '../components/NotificationCard';
-import { ErrorScreen } from '../components/ErrorScreen';
-import { LoadingScreen } from '../components/LoadingScreen';
 import { useNotifications } from '../context/NotificationContext';
 import { Log } from '../services/logger';
 import { formatDateTime, sortByNewest } from '../utils/notificationHelpers';
@@ -23,7 +21,7 @@ function SummaryCard({ label, value, tone }) {
 }
 
 export function DashboardPage() {
-  const { notifications, stats, loading, error, refreshNotifications, markAsRead, lastSyncedAt } =
+  const { notifications, stats, loading, refreshNotifications, markAsRead, lastSyncedAt } =
     useNotifications();
 
   const recentNotifications = sortByNewest(notifications).slice(0, 4);
@@ -32,14 +30,6 @@ export function DashboardPage() {
     await Log('frontend', 'info', 'user', 'Dashboard refresh requested');
     await refreshNotifications();
   };
-
-  if (loading) {
-    return <LoadingScreen />;
-  }
-
-  if (error && notifications.length === 0) {
-    return <ErrorScreen message={error} onRetry={refreshNotifications} />;
-  }
 
   return (
     <Stack spacing={3}>
@@ -66,30 +56,34 @@ export function DashboardPage() {
         </Stack>
       </Box>
 
-      <Grid container spacing={3}>
-        <Grid item xs={12} sm={6} lg={4}>
-          <SummaryCard label="Total Notifications" value={stats.total} tone="primary" />
+      {loading ? (
+        <Typography sx={{ color: 'text.secondary' }}>Loading dashboard data...</Typography>
+      ) : (
+        <Grid container spacing={3}>
+          <Grid item xs={12} sm={6} lg={4}>
+            <SummaryCard label="Total Notifications" value={stats.total} tone="primary" />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={4}>
+            <SummaryCard label="Unread Notifications" value={stats.unread} tone="warning" />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={4}>
+            <SummaryCard label="Placement Count" value={stats.Placement} tone="success" />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={4}>
+            <SummaryCard label="Result Count" value={stats.Result} tone="info" />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={4}>
+            <SummaryCard label="Event Count" value={stats.Event} tone="secondary" />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={4}>
+            <SummaryCard
+              label="Last Sync"
+              value={lastSyncedAt ? formatDateTime(lastSyncedAt) : 'Pending'}
+              tone="default"
+            />
+          </Grid>
         </Grid>
-        <Grid item xs={12} sm={6} lg={4}>
-          <SummaryCard label="Unread Notifications" value={stats.unread} tone="warning" />
-        </Grid>
-        <Grid item xs={12} sm={6} lg={4}>
-          <SummaryCard label="Placement Notifications" value={stats.Placement} tone="success" />
-        </Grid>
-        <Grid item xs={12} sm={6} lg={4}>
-          <SummaryCard label="Result Notifications" value={stats.Result} tone="info" />
-        </Grid>
-        <Grid item xs={12} sm={6} lg={4}>
-          <SummaryCard label="Event Notifications" value={stats.Event} tone="secondary" />
-        </Grid>
-        <Grid item xs={12} sm={6} lg={4}>
-          <SummaryCard
-            label="Last Sync"
-            value={lastSyncedAt ? formatDateTime(lastSyncedAt) : 'Pending'}
-            tone="default"
-          />
-        </Grid>
-      </Grid>
+      )}
 
       <Box>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
@@ -101,18 +95,24 @@ export function DashboardPage() {
           </Box>
         </Stack>
 
-        <Grid container spacing={3}>
-          {recentNotifications.map((notification, index) => (
-            <Grid item xs={12} md={6} key={notification.id}>
-              <NotificationCard
-                notification={notification}
-                rank={index + 1}
-                onToggleRead={() => void markAsRead(notification.id, !notification.isRead)}
-                onOpen={() => void Log('frontend', 'info', 'user', `Opened dashboard notification ${notification.id}`)}
-              />
-            </Grid>
-          ))}
-        </Grid>
+        {loading ? (
+          <Typography sx={{ color: 'text.secondary' }}>Loading recent notifications...</Typography>
+        ) : (
+          <Grid container spacing={3}>
+            {recentNotifications.map((notification, index) => (
+              <Grid item xs={12} md={6} key={notification.id}>
+                <NotificationCard
+                  notification={notification}
+                  rank={index + 1}
+                  onToggleRead={() => void markAsRead(notification.id, !notification.isRead)}
+                  onOpen={() =>
+                    void Log('frontend', 'info', 'user', `Opened dashboard notification ${notification.id}`)
+                  }
+                />
+              </Grid>
+            ))}
+          </Grid>
+        )}
       </Box>
     </Stack>
   );
